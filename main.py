@@ -189,7 +189,7 @@ async def management_panel(admin: admin_dependency, db: db_dependency):
     message_containers = []
     comment_containers = []
     for container_id_json in admin_containers:
-        container_id = container_id_json['container_id']
+        container_id = container_id_json.container_id
         container = db.query(models.Container).filter(models.Container.container_id == container_id).first()
         message_containers.append(container) if container.type_id==1 else comment_containers.append(container)
 
@@ -197,7 +197,7 @@ async def management_panel(admin: admin_dependency, db: db_dependency):
     admin_bots = db.query(models.BotAdmin.bot_id).filter(models.BotAdmin.admin_id == admin.admin_id).all()
     bots = []
     for bot_id_json in admin_bots:
-        bot_id = bot_id_json['bot_id']
+        bot_id = bot_id_json.bot_id
         bot = db.query(models.Bot).filter(models.Bot.bot_id == bot_id).first()
         bots.append(bot)
 
@@ -531,8 +531,8 @@ async def get_container_log(container_id: int, t1: date, t2:date, db:db_dependen
     return context
 
 
-@app.get('/container-log/{container_id}&{t1}&{t2}/added-messages')
-async def get_container_log_added_messages(container_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
+@app.get('/container-log/{container_id}&{t1}&{t2}/sent-messages')
+async def get_container_log_sent_messages(container_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
 
     messages_in_period = db.query(models.BotHistory).join(models.Message,models.Message.message_id == models.BotHistory.message_id).filter(and_(models.BotHistory.time_sent.between(t1,t2),models.Message.container_id==container_id)).all()
 
@@ -546,6 +546,95 @@ async def get_container_log_added_messages(container_id: int, t1: date, t2:date,
             "message_id": message.message_id,
             "time_sent": bothistory.time_sent,
             "container_id": message.container_id,
+            "content": message.content,
+        }
+
+        context.append(message_context)
+
+    return context
+ 
+
+@app.get('/container-log/{container_id}&{t1}&{t2}/added-messages')
+async def get_container_log_added_messages(container_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
+
+    messages = db.query(models.Message).filter(and_(models.Message.container_id == container_id,models.Message.create_date.between(t1,t2))).all()
+
+    return messages
+
+@app.get('/container-log/{container_id}&{t1}&{t2}/deleted-messages')
+async def get_container_log_deleted_messages(container_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
+
+    deleted_messages = db.query(models.Message).filter(and_(models.Message.container_id == container_id, models.Message.is_deleted==1,models.Message.deleted_date.between(t1,t2))).all()
+
+    return deleted_messages
+
+
+
+
+
+
+@app.get('/bot-log/{bot_id}&{t1}&{t2}')
+async def get_bot_log(bot_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
+    
+    # all_messages_in_period = db.query(models.BotHistory.message_id).filter(models.BotHistory.time_sent.between(t1,t2)).all()
+    messages_in_period = db.query(models.BotHistory).filter(and_(models.BotHistory.time_sent.between(t1,t2),models.BotHistory.bot_id==bot_id)).all()
+
+    count_messages_in_period = len(messages_in_period)
+
+    # added_in_period = db.query(func.count(models.Message.message_id)).filter(and_(models.Message.bot_id == bot_id,models.Message.create_date.between(t1,t2))).group_by(models.Message.bot_id).scalar()
+    
+    # deleted_in_period = db.query(func.count(models.Message.message_id)).filter(and_(models.Message.bot_id == bot_id,models.Message.is_deleted==1,models.Message.deleted_date.between(t1,t2))).group_by(models.Message.bot_id).scalar()
+
+    tempt2 = t2
+
+    graph = []
+
+    while tempt2>t1:
+
+        tempt1 = tempt2 - timedelta(days=1)
+
+        count = 0
+
+        for message in messages_in_period:
+            if message.time_sent.date() >= tempt1 and message.time_sent.date() < tempt2:
+                count+=1
+                messages_in_period.remove(message)
+            
+        graph_data = {
+            "date": tempt1,
+            "count": count
+        }
+
+        graph.append(graph_data)
+
+        tempt2 = tempt1
+
+
+    context = {
+        "messages_in_period": count_messages_in_period,
+        # "added_in_period": added_in_period,
+        # "deleted_in_period": deleted_in_period,
+        "graph": graph
+    }
+
+    return context
+
+
+@app.get('/bot-log/{bot_id}&{t1}&{t2}/sent-messages')
+async def get_bot_log_sent_messages(bot_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
+
+    messages_in_period = db.query(models.BotHistory).filter(and_(models.BotHistory.time_sent.between(t1,t2),models.BotHistory.bot_id==bot_id)).all()
+
+    context = []
+
+    for bothistory in messages_in_period:
+
+        message = db.query(models.Message).filter(models.Message.message_id == bothistory.message_id).first()
+
+        message_context = {
+            "message_id": message.message_id,
+            "time_sent": bothistory.time_sent,
+            "bot_id": bothistory.bot_id,
             "content": message.content,
         }
 
