@@ -297,7 +297,7 @@ async def bot_management_panel(bot_id: int,db:db_dependency, admin:admin_depende
     return context
 
 @app.post('/add-message',response_model=bool)
-async def add_message_to_container(container_id: int, content: str, db: db_dependency):
+async def add_message_to_container(container_id: int, content: str, db: db_dependency, admin:admin_dependency):
 
     try:
 
@@ -322,7 +322,7 @@ async def add_message_to_container(container_id: int, content: str, db: db_depen
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get('/container-messages/{container_id}')
-async def get_container_messages(container_id: int, db:db_dependency):
+async def get_container_messages(container_id: int, db:db_dependency, admin:admin_dependency):
 
     container_messages = db.query(models.Message).filter(and_(models.Message.container_id == container_id, models.Message.is_deleted == 0)).all()
 
@@ -354,7 +354,7 @@ async def get_container_messages(container_id: int, db:db_dependency):
     return context
 
 @app.get('/bot-messages/{bot_id}')
-async def get_bot_messages(bot_id: int, db:db_dependency):
+async def get_bot_messages(bot_id: int, db:db_dependency, admin:admin_dependency):
 
     bot_messages = db.query(models.BotHistory).filter(models.BotHistory.bot_id == bot_id).all()
 
@@ -381,7 +381,7 @@ async def get_bot_messages(bot_id: int, db:db_dependency):
     return context 
 
 @app.delete('/delete-container/{container_id}')
-async def delete_container(container_id: int, db:db_dependency):
+async def delete_container(container_id: int, db:db_dependency, admin:admin_dependency):
 
     db_container = db.query(models.Container).filter(models.Container.container_id == container_id).first()
 
@@ -394,7 +394,7 @@ async def delete_container(container_id: int, db:db_dependency):
     return {"message":"container deleted succesfully"}
 
 @app.delete('/delete-bot/{bot_id}')
-async def delete_bot(bot_id: int, db:db_dependency):
+async def delete_bot(bot_id: int, db:db_dependency, admin:admin_dependency):
 
     db_bot = db.query(models.Bot).filter(models.Bot.bot_id == bot_id).first()
 
@@ -408,7 +408,7 @@ async def delete_bot(bot_id: int, db:db_dependency):
 
 
 @app.post('/add-bot')
-async def add_bot(bot: basemodels.BotBase, admins: list[int], containers: list[int], db: db_dependency):
+async def add_bot(bot: basemodels.BotBase, admins: list[int], containers: list[int], db: db_dependency, admin:admin_dependency):
 
     try:
         # add bot
@@ -447,7 +447,7 @@ async def add_bot(bot: basemodels.BotBase, admins: list[int], containers: list[i
 
 
 @app.post('/add-container')
-async def add_container(container: basemodels.ContainerBase, admins: list[int], bots: list[int], db: db_dependency):
+async def add_container(container: basemodels.ContainerBase, admins: list[int], bots: list[int], db: db_dependency, admin:admin_dependency):
 
     try:
         # add container
@@ -485,20 +485,71 @@ async def add_container(container: basemodels.ContainerBase, admins: list[int], 
     
 
 @app.get('/container-log/{container_id}&{t1}&{t2}')
-async def get_container_log(container_id: int, t1: date, t2:date, db:db_dependency):
+async def get_container_log(container_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
     
     # all_messages_in_period = db.query(models.BotHistory.message_id).filter(models.BotHistory.time_sent.between(t1,t2)).all()
-    all_messages_in_period = db.query(models.BotHistory).join(models.Message,models.Message.message_id == models.BotHistory.message_id).filter(and_(models.BotHistory.time_sent.between(t1,t2),models.Message.container_id==container_id)).all()
+    messages_in_period = db.query(models.BotHistory).join(models.Message,models.Message.message_id == models.BotHistory.message_id).filter(and_(models.BotHistory.time_sent.between(t1,t2),models.Message.container_id==container_id)).all()
 
-    # messages_sent = []
+    count_messages_in_period = len(messages_in_period)
 
-    # for message in all_messages_in_period:
-    #     message_id = message.message_id
+    added_in_period = db.query(func.count(models.Message.message_id)).filter(and_(models.Message.container_id == container_id,models.Message.create_date.between(t1,t2))).group_by(models.Message.container_id).scalar()
+    
+    deleted_in_period = db.query(func.count(models.Message.message_id)).filter(and_(models.Message.container_id == container_id,models.Message.is_deleted==1,models.Message.deleted_date.between(t1,t2))).group_by(models.Message.container_id).scalar()
 
-    # """
-    #     select 
-    # """
+    tempt2 = t2
+
+    graph = []
+
+    while tempt2>t1:
+
+        tempt1 = tempt2 - timedelta(days=1)
+
+        count = 0
+
+        for message in messages_in_period:
+            if message.time_sent.date() >= tempt1 and message.time_sent.date() < tempt2:
+                count+=1
+                messages_in_period.remove(message)
+            
+        graph_data = {
+            "date": tempt1,
+            "count": count
+        }
+
+        graph.append(graph_data)
+
+        tempt2 = tempt1
 
 
-    return all_messages_in_period
+    context = {
+        "messages_in_period": count_messages_in_period,
+        "added_in_period": added_in_period,
+        "deleted_in_period": deleted_in_period,
+        "graph": graph
+    }
+
+    return context
+
+
+@app.get('/container-log/{container_id}&{t1}&{t2}/added-messages')
+async def get_container_log_added_messages(container_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
+
+    messages_in_period = db.query(models.BotHistory).join(models.Message,models.Message.message_id == models.BotHistory.message_id).filter(and_(models.BotHistory.time_sent.between(t1,t2),models.Message.container_id==container_id)).all()
+
+    context = []
+
+    for bothistory in messages_in_period:
+
+        message = db.query(models.Message).filter(models.Message.message_id == bothistory.message_id).first()
+
+        message_context = {
+            "message_id": message.message_id,
+            "time_sent": bothistory.time_sent,
+            "container_id": message.container_id,
+            "content": message.content,
+        }
+
+        context.append(message_context)
+
+    return context
  
