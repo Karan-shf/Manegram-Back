@@ -46,12 +46,12 @@ class BotContainerModel(BotContainerBase):
 
 
 class BotHistoryBase(BaseModel):
-    bot_history_id: int
     bot_id: int 
     message_id: int
-    time_sent: datetime
 
 class BotHistoryModel(BotHistoryBase):
+    bot_history_id: int
+    time_sent: datetime
     class Config:
         from_attributes = True
 
@@ -78,14 +78,14 @@ class ContainerAdminModel(ContainerAdminBase):
 
 
 class MessageBase(BaseModel):
-    message_id: int
     content: str
     container_id: int
-    create_date: date
-    is_deleted: bool
-    deleted_date: date
 
 class MessageModel(MessageBase):
+    message_id: int
+    create_date: date
+    is_deleted: bool
+    deleted_date: date | None
     class Config:
         from_attributes = True
 
