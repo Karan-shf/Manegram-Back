@@ -503,7 +503,6 @@ async def get_all_admins(mode: int, username: str, ent_id: int, db:db_dependency
     return True
 
     
-
 @app.post('/add-bot')
 async def add_bot(bot: basemodels.BotBase, admin_usernames: Annotated[list[str],Body()], containers: Annotated[list[int],Body()], db: db_dependency, admin:admin_dependency):
 
@@ -536,7 +535,7 @@ async def add_bot(bot: basemodels.BotBase, admin_usernames: Annotated[list[str],
         # add BotContainer
         for container_id in containers:
             try:
-                validate_containerID(container_id)
+                validate_containerID(container_id,db)
                 db_botcontainer = models.BotContainer(bot_id=db_bot.bot_id, container_id=container_id)
                 db.add(db_botcontainer)
                 db.commit()
@@ -606,7 +605,155 @@ async def add_container(container: basemodels.ContainerBase, admin_usernames: An
         db.rollback() 
         logging.error(f"Exception: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get('/get-unconnected-entities/{mode}/{ent_id}')
+async def get_unconnected_entities(mode: int, ent_id: int, db:db_dependency, admin:admin_dependency):
+
+    # mode 1 => bot
+    # mode 2 => container
+    # ent_id is either bot_id or container_id depending on mode
+
+    if mode==1:
+
+        validate_botID(ent_id,db)
+
+        all_containers = await get_all_containers(db,admin)
+
+        message_containers = [x.container_id for x in all_containers['message_containers']]
+        comment_containers = [x.container_id for x in all_containers['comment_containers']]
+
+        connected_containers = db.query(models.BotContainer.container_id).filter(models.BotContainer.bot_id == ent_id).all()
+
+        connected_containers_list = [x.container_id for x in connected_containers]
+
+        for container_id in connected_containers_list:
+
+            if container_id in message_containers:
+                message_containers.remove(container_id)
+            elif container_id in comment_containers:
+                comment_containers.remove(container_id)
+
+        unconnected_message_containers = []
+        unconnected_comment_containers = []
+        for container_id in message_containers:
+            container = db.query(models.Container).filter(models.Container.container_id == container_id).first()
+            unconnected_message_containers.append(container)
+        for container_id in comment_containers:
+            container = db.query(models.Container).filter(models.Container.container_id == container_id).first()
+            unconnected_comment_containers.append(container)
+
+        return {"message_containers":unconnected_message_containers, "comment_containers":unconnected_comment_containers}
     
+    else:
+
+        validate_containerID(ent_id,db)
+
+        all_botsJson = db.query(models.Bot.bot_id).all()
+
+        all_bots = [x.bot_id for x in all_botsJson]
+
+        connected_botsJson = db.query(models.BotContainer.bot_id).filter(models.BotContainer.container_id == ent_id).all()
+
+        connected_bots = [x.bot_id for x in connected_botsJson]
+
+        for bot_id in connected_bots:
+            all_bots.remove(bot_id)
+
+        unconnected_bots = []
+        for bot_id in all_bots:
+            bot = db.query(models.Bot).filter(models.Bot.bot_id == bot_id).first()
+            unconnected_bots.append(bot)
+
+        return unconnected_bots
+
+
+@app.put('/edit-bot/{bot_id}')
+async def edit_bot(edit_params: basemodels.BotBase, admin_usernames: Annotated[list[str],Body()], containers: Annotated[list[int],Body()], bot_id: int, db: db_dependency, admin:admin_dependency):
+
+    validate_botID(bot_id,db)
+
+    username_taken = db.query(models.Bot).filter(models.Bot.username == edit_params.username).first()
+
+    if username_taken is not None and username_taken.bot_id != bot_id :
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="bot username is already taken")
+
+    bot:models.Bot = db.query(models.Bot).filter(models.Bot.bot_id == bot_id).first()
+
+    bot.title = edit_params.title
+    bot.username = edit_params.username
+    bot.info = edit_params.info
+
+    db.commit()
+    db.refresh(bot)
+
+    for admin_username in admin_usernames:
+        try:
+            # validate_adminID(admin_id,db)
+            admin_id = db.query(models.Admin.admin_id).filter(models.Admin.username == admin_username).first()
+            if admin_id is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="admin not found")
+            db_botadmin = models.BotAdmin(admin_id=admin_id.admin_id, bot_id=bot_id)
+            db.add(db_botadmin)
+            db.commit()
+            db.refresh(db_botadmin)
+        except Exception as e:
+            print(e)
+
+    for container_id in containers:
+        try:
+            validate_containerID(container_id,db)
+            db_botcontainer = models.BotContainer(bot_id=bot_id, container_id=container_id)
+            db.add(db_botcontainer)
+            db.commit()
+            db.refresh(db_botcontainer)
+        except Exception as e:
+            print(e)
+
+    return {"message":"bot edited succesfully"}
+
+
+@app.put('/edit-container/{container_id}')
+async def edit_container(edit_params: basemodels.ContainerBase, admin_usernames: Annotated[list[str],Body()], bots: Annotated[list[int],Body()], container_id: int, db: db_dependency, admin:admin_dependency):
+
+    validate_containerID(container_id,db)
+
+    container:models.Container = db.query(models.Container).filter(models.Container.container_id == container_id).first()
+
+    container.title = edit_params.title
+    container.type_id = edit_params.type_id
+    container.info = edit_params.info
+
+    db.commit()
+    db.refresh(container)
+
+    for admin_username in admin_usernames:
+        try:
+            # validate_adminID(admin_id,db)
+            admin_id = db.query(models.Admin.admin_id).filter(models.Admin.username == admin_username).first()
+            if admin_id is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="admin not found")
+            db_containeradmin = models.ContainerAdmin(admin_id=admin_id.admin_id, container_id=container_id)
+            db.add(db_containeradmin)
+            db.commit()
+            db.refresh(db_containeradmin)
+        except Exception as e:
+            print(e)
+
+    for bot_id in bots:
+        try:
+            validate_botID(bot_id,db)
+            db_botcontainer = models.BotContainer(bot_id=bot_id, container_id=container_id)
+            db.add(db_botcontainer)
+            db.commit()
+            db.refresh(db_botcontainer)
+        except Exception as e:
+            print(e)
+
+    return {"message":"container edited succesfully"}
+
+    
+
 
 @app.get('/container-log/{container_id}&{t1}&{t2}')
 async def get_container_log(container_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
@@ -848,7 +995,3 @@ async def delete_message(message_id: int,db:db_dependency, admin:admin_dependenc
     return {"message":"message deleted succesfully"}
 
 
-# @app.put('/edit-bot')
-# async def edit_bot(bot: basemodels.BotBase, admin_usernames: Annotated[list[str],Body()], containers: Annotated[list[int],Body()], db: db_dependency, admin:admin_dependency):
-
-#     validate_botID(bot_id)
