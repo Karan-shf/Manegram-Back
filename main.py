@@ -434,29 +434,75 @@ async def get_bot_messages(bot_id: int, db:db_dependency, admin:admin_dependency
 @app.delete('/delete-container/{container_id}') # delete all connections
 async def delete_container(container_id: int, db:db_dependency, admin:admin_dependency):
 
-    db_container = db.query(models.Container).filter(models.Container.container_id == container_id).first()
+    validate_containerID(container_id,db)
 
-    if db_container is None:
-        return {"message":"container not found"}
+    try:
 
-    db.delete(db_container)
-    db.commit()
+        #delete admin-container connections
 
-    return {"message":"container deleted succesfully"}
+        admin_containers = db.query(models.ContainerAdmin).filter(models.ContainerAdmin.container_id == container_id).all()
+        for admin_container in admin_containers:
+            db.delete(admin_container)
+            db.commit()
+
+        # delete bot-container connections
+
+        bot_containers = db.query(models.BotContainer).filter(models.BotContainer.container_id == container_id).all()
+        for bot_container in bot_containers:
+            db.delete(bot_container)
+            db.commit()
+
+        # delete the entity
+
+        db_container = db.query(models.Container).filter(models.Container.container_id == container_id).first()
+
+        db.delete(db_container)
+        db.commit()
+
+        return {"message":"container deleted succesfully"}
+    except Exception as e:
+        db.rollback()
+        print(e)
+        logging.error(f"Error: {e}")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="something went wrong")
+    
 
 
 @app.delete('/delete-bot/{bot_id}') # delete all connections
 async def delete_bot(bot_id: int, db:db_dependency, admin:admin_dependency):
 
-    db_bot = db.query(models.Bot).filter(models.Bot.bot_id == bot_id).first()
+    validate_botID(bot_id,db)
 
-    if db_bot is None:
-        return {"message":"bot not found"}
+    try:
 
-    db.delete(db_bot)
-    db.commit()
+        # delete bot-admin conections
 
-    return {"message":"bot deleted succesfully"}
+        bot_admins = db.query(models.BotAdmin).filter(models.BotAdmin.bot_id == bot_id).all()
+        for bot_admin in bot_admins:
+            db.delete(bot_admin)
+            db.commit()
+
+        # delete bot-container connections
+
+        bot_containers = db.query(models.BotContainer).filter(models.BotContainer.bot_id == bot_id).all()
+        for bot_container in bot_containers:
+            db.delete(bot_container)
+            db.commit()
+
+        db_bot = db.query(models.Bot).filter(models.Bot.bot_id == bot_id).first()
+
+        db.delete(db_bot)
+        db.commit()
+
+        return {"message":"bot deleted succesfully"}
+        
+    except Exception as e:
+        db.rollback()
+        print(e)
+        logging.error(f"Error: {e}")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="something went wrong")
+
+
 
 @app.get('/all-containers')
 async def get_all_containers(db:db_dependency, admin:admin_dependency):
