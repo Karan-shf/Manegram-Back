@@ -59,8 +59,7 @@ def validate_adminID(admin_id: int, db:db_dependency):
     admin_exist = db.query(models.Admin).filter(models.Admin.admin_id == admin_id).first()
 
     if not admin_exist:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin does not exist")
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin does not exist")    
 
 def validate_botID(bot_id: int, db:db_dependency):
 
@@ -919,17 +918,17 @@ async def get_container_log(container_id: int, t1: date, t2:date, db:db_dependen
         for message in messages_in_period:
             if message.time_sent.date() >= tempt1 and message.time_sent.date() < tempt2:
                 sent_message_count+=1
-                messages_in_period.remove(message)
+                # messages_in_period.remove(message)
 
-        for message in added_in_period:
-            if message.create_date >= tempt1 and message.create_date < tempt2:
+        for add_message in added_in_period:
+            if add_message.create_date >= tempt1 and add_message.create_date < tempt2:
                 added_message_count+=1
-                added_in_period.remove(message)
+                # added_in_period.remove(add_message)
 
-        for message in deleted_in_period:
-            if message.deleted_date >= tempt1 and message.deleted_date < tempt2:
+        for del_message in deleted_in_period:
+            if del_message.deleted_date >= tempt1 and del_message.deleted_date < tempt2:
                 deleted_message_count+=1
-                deleted_in_period.remove(message)
+                # deleted_in_period.remove(del_message)
             
         graph_data = {
             "date": tempt1,
