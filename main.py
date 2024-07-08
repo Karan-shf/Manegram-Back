@@ -14,7 +14,7 @@ from sqlalchemy import and_,func
 import logging
 from sqlalchemy.exc import SQLAlchemyError
 
-from sqlalchemy.dialects import postgresql,sqlite
+# from sqlalchemy.dialects import postgresql,sqlite
 
 
 SECRET_KEY = "82aae4058e06a6746ebdd345bb19340223780baa5eb704bcc8890983c20c4739"
@@ -798,8 +798,6 @@ async def edit_container(edit_params: basemodels.ContainerBase, admin_usernames:
 
     return {"message":"container edited succesfully"}
 
-    
-
 
 @app.get('/container-log/{container_id}&{t1}&{t2}')
 async def get_container_log(container_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
@@ -811,9 +809,15 @@ async def get_container_log(container_id: int, t1: date, t2:date, db:db_dependen
 
     count_messages_in_period = len(messages_in_period)
 
-    added_in_period = db.query(func.count(models.Message.message_id)).filter(and_(models.Message.container_id == container_id,models.Message.create_date.between(t1,t2))).group_by(models.Message.container_id).scalar()
+    # added_in_period = db.query(func.count(models.Message.message_id)).filter(and_(models.Message.container_id == container_id,models.Message.create_date.between(t1,t2))).group_by(models.Message.container_id).scalar()
+    # count_added_in_period = added_in_period
+    added_in_period = db.query(models.Message).filter(and_(models.Message.container_id == container_id,models.Message.create_date.between(t1,t2))).all()
+    count_added_in_period = len(added_in_period)
     
-    deleted_in_period = db.query(func.count(models.Message.message_id)).filter(and_(models.Message.container_id == container_id,models.Message.is_deleted==1,models.Message.deleted_date.between(t1,t2))).group_by(models.Message.container_id).scalar()
+    # deleted_in_period = db.query(func.count(models.Message.message_id)).filter(and_(models.Message.container_id == container_id,models.Message.is_deleted==1,models.Message.deleted_date.between(t1,t2))).group_by(models.Message.container_id).scalar()
+    # count_deleted_in_period = deleted_in_period
+    deleted_in_period = db.query(models.Message).filter(and_(models.Message.container_id == container_id,models.Message.is_deleted==1,models.Message.deleted_date.between(t1,t2))).all()
+    count_deleted_in_period = len(deleted_in_period)
 
     tempt2 = t2
 
@@ -823,16 +827,30 @@ async def get_container_log(container_id: int, t1: date, t2:date, db:db_dependen
 
         tempt1 = tempt2 - timedelta(days=1)
 
-        count = 0
+        sent_message_count = 0
+        added_message_count = 0
+        deleted_message_count = 0
 
         for message in messages_in_period:
             if message.time_sent.date() >= tempt1 and message.time_sent.date() < tempt2:
-                count+=1
+                sent_message_count+=1
                 messages_in_period.remove(message)
+
+        for message in added_in_period:
+            if message.create_date >= tempt1 and message.create_date < tempt2:
+                added_message_count+=1
+                added_in_period.remove(message)
+
+        for message in deleted_in_period:
+            if message.deleted_date >= tempt1 and message.deleted_date < tempt2:
+                deleted_message_count+=1
+                deleted_in_period.remove(message)
             
         graph_data = {
             "date": tempt1,
-            "count": count
+            "sent_message_count": sent_message_count,
+            "added_message_count": added_message_count,
+            "deleted_message_count": deleted_message_count
         }
 
         graph.append(graph_data)
@@ -842,8 +860,8 @@ async def get_container_log(container_id: int, t1: date, t2:date, db:db_dependen
 
     context = {
         "messages_in_period": count_messages_in_period,
-        "added_in_period": added_in_period,
-        "deleted_in_period": deleted_in_period,
+        "added_in_period": count_added_in_period,
+        "deleted_in_period": count_deleted_in_period,
         "graph": graph
     }
 
