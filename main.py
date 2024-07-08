@@ -21,8 +21,8 @@ SECRET_KEY = "82aae4058e06a6746ebdd345bb19340223780baa5eb704bcc8890983c20c4739"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
-oauth2_scheme_super = OAuth2PasswordBearer(tokenUrl="login/superadmin")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login", scheme_name="admin")
+oauth2_scheme_super = OAuth2PasswordBearer(tokenUrl="login/superadmin", scheme_name="super_admin")
 
 app = FastAPI()
 
@@ -83,7 +83,13 @@ def validate_containerID(container_id: int, db:db_dependency):
     if not container_exist:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container does not exist")
 
+def container_access_verification(admin_id: int, container_id: int, db: db_dependency):
 
+    access = db.query(models.ContainerAdmin).filter(and_(models.ContainerAdmin.admin_id == admin_id, models.ContainerAdmin.container_id == container_id)).filter()
+
+    if not access:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Admin does not have acces to this container")
+ 
 
 @app.get('/')
 async def root(db:db_dependency):
@@ -154,6 +160,7 @@ def authenticate_admin(username:str, password:str, db: db_dependency):
 
 
 def create_access_token(admin_id:int, expires_delta: timedelta):
+    # encode = {'id': admin_id, 'flag':is_super_admin}
     encode = {'id': admin_id}
     expires = datetime.now(timezone.utc) + expires_delta
     encode.update({'exp': expires})
@@ -180,7 +187,7 @@ def authenticate_superadmin(username:str, password:str, db: db_dependency):
         return False
     return super_admin
 
-@app.post('/login/superadmin')
+@app.post('/login/superadmin',response_model=basemodels.Token)
 async def super_admin_login(form_data:Annotated[OAuth2PasswordRequestForm,Depends()], db:db_dependency):
     
     super_admin = authenticate_superadmin(form_data.username , form_data.password , db)
@@ -214,13 +221,19 @@ async def get_current_admin(token: Annotated[str, Depends(oauth2_scheme)], db:db
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         
         id: int = payload.get("id")
+        # flag: bool = payload.get("flag")
         if id is None:
             raise credentials_exception
+        # token_data = basemodels.TokenData(id=id, is_super_admin=flag)
         token_data = basemodels.TokenData(id=id)
         
     except InvalidTokenError:
         raise credentials_exception
     
+    # if token_data.is_super_admin:
+    #     admin = await get_super_admin(db, token_data.id)
+    # else:
+    #     admin = await get_admin(db, token_data.id)
     admin = await get_admin(db, token_data.id)
     if admin is None:
         raise credentials_exception
@@ -250,8 +263,8 @@ async def get_current_super_admin(token: Annotated[str, Depends(oauth2_scheme_su
     return super_admin
 
 
-admin_dependency = Annotated[models.Admin, Depends(get_current_admin)]
-super_admin_dependency = Annotated[models.Admin, Depends(get_current_super_admin)]
+admin_dependency = Annotated[models.Admin , Depends(get_current_admin)]
+super_admin_dependency = Annotated[models.SuperAdmin, Depends(get_current_super_admin)]
 
 
 @app.get('/adminInfo') #test function
@@ -300,6 +313,7 @@ async def management_panel(admin: admin_dependency, db: db_dependency):
 async def container_management_panel(container_id: int, db: db_dependency, admin:admin_dependency):
 
     validate_containerID(container_id,db)
+    container_access_verification(admin.admin_id, container_id, db)
     
     container = db.query(models.Container).filter(models.Container.container_id == container_id).first()
 
