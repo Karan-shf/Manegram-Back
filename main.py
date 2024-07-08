@@ -582,7 +582,7 @@ async def delete_bot(bot_id: int, db:db_dependency, admin:admin_dependency):
 @app.get('/all-containers')
 async def get_all_containers(db:db_dependency, admin:admin_dependency):
     
-    all_containers: models.Container = db.query(models.Container).all()
+    all_containers = db.query(models.Container).all()
 
     message_containers = []
     
@@ -592,6 +592,13 @@ async def get_all_containers(db:db_dependency, admin:admin_dependency):
         message_containers.append(container) if container.type_id==1 else comment_containers.append(container)
 
     return {"message_containers":message_containers, "comment_containers":comment_containers}
+
+@app.get('/all-bots')
+async def get_all_bots(db:db_dependency,admin:admin_dependency):
+
+    all_bots = db.query(models.Bot).all()
+
+    return all_bots
 
 @app.get('/admin-username-authentication/edit/{mode}/{username}&{ent_id}')
 async def get_all_admins(mode: int, username: str, ent_id: int, db:db_dependency, admin:admin_dependency):
