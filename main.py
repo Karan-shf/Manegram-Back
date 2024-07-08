@@ -85,10 +85,17 @@ def validate_containerID(container_id: int, db:db_dependency):
 
 def container_access_verification(admin_id: int, container_id: int, db: db_dependency):
 
-    access = db.query(models.ContainerAdmin).filter(and_(models.ContainerAdmin.admin_id == admin_id, models.ContainerAdmin.container_id == container_id)).filter()
+    access = db.query(models.ContainerAdmin).filter(and_(models.ContainerAdmin.admin_id == admin_id, models.ContainerAdmin.container_id == container_id)).first()
 
     if not access:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Admin does not have acces to this container")
+
+def bot_access_verification(admin_id: int, bot_id: int, db: db_dependency):
+
+    access = db.query(models.BotAdmin).filter(and_(models.BotAdmin.admin_id == admin_id, models.BotAdmin.bot_id == bot_id)).first()
+
+    if not access:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Admin does not have acces to this Bot")
  
 
 @app.get('/')
@@ -363,6 +370,7 @@ async def container_management_panel(container_id: int, db: db_dependency, admin
 async def bot_management_panel(bot_id: int,db:db_dependency, admin:admin_dependency):
 
     validate_botID(bot_id,db)
+    bot_access_verification(admin.admin_id, bot_id, db)
 
     bot = db.query(models.Bot).filter(models.Bot.bot_id == bot_id).first()
     
@@ -406,6 +414,7 @@ async def bot_management_panel(bot_id: int,db:db_dependency, admin:admin_depende
 async def add_message_to_container(message: basemodels.MessageBase, db: db_dependency, admin:admin_dependency):
 
     validate_containerID(message.container_id,db)
+    container_access_verification(admin.admin_id, message.container_id, db)
 
     try:
 
@@ -434,6 +443,7 @@ async def add_message_to_container(message: basemodels.MessageBase, db: db_depen
 async def get_container_messages(container_id: int, db:db_dependency, admin:admin_dependency):
 
     validate_containerID(container_id,db)
+    container_access_verification(admin.admin_id, container_id, db)
 
     container_messages = db.query(models.Message).filter(and_(models.Message.container_id == container_id, models.Message.is_deleted == 0)).all()
 
@@ -469,6 +479,7 @@ async def get_container_messages(container_id: int, db:db_dependency, admin:admi
 async def get_bot_messages(bot_id: int, db:db_dependency, admin:admin_dependency):
 
     validate_botID(bot_id,db)
+    bot_access_verification(admin.admin_id, bot_id, db)
 
     bot_messages = db.query(models.BotHistory).filter(models.BotHistory.bot_id == bot_id).all()
 
@@ -495,10 +506,11 @@ async def get_bot_messages(bot_id: int, db:db_dependency, admin:admin_dependency
     return context 
 
 
-@app.delete('/delete-container/{container_id}') # delete all connections
+@app.delete('/delete-container/{container_id}')
 async def delete_container(container_id: int, db:db_dependency, admin:admin_dependency):
 
     validate_containerID(container_id,db)
+    container_access_verification(admin.admin_id, container_id, db)
 
     try:
 
@@ -531,10 +543,11 @@ async def delete_container(container_id: int, db:db_dependency, admin:admin_depe
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="something went wrong")
     
 
-@app.delete('/delete-bot/{bot_id}') # delete all connections
+@app.delete('/delete-bot/{bot_id}')
 async def delete_bot(bot_id: int, db:db_dependency, admin:admin_dependency):
 
     validate_botID(bot_id,db)
+    bot_access_verification(admin.admin_id, bot_id, db)
 
     try:
 
@@ -780,6 +793,7 @@ async def get_unconnected_entities(mode: int, ent_id: int, db:db_dependency, adm
 async def edit_bot(edit_params: basemodels.BotBase, admin_usernames: Annotated[list[str],Body()], containers: Annotated[list[int],Body()], bot_id: int, db: db_dependency, admin:admin_dependency):
 
     validate_botID(bot_id,db)
+    bot_access_verification(admin.admin_id, bot_id, db)
 
     username_taken = db.query(models.Bot).filter(models.Bot.username == edit_params.username).first()
 
@@ -825,6 +839,7 @@ async def edit_bot(edit_params: basemodels.BotBase, admin_usernames: Annotated[l
 async def edit_container(edit_params: basemodels.ContainerBase, admin_usernames: Annotated[list[str],Body()], bots: Annotated[list[int],Body()], container_id: int, db: db_dependency, admin:admin_dependency):
 
     validate_containerID(container_id,db)
+    container_access_verification(admin.admin_id, container_id, db)
 
     container:models.Container = db.query(models.Container).filter(models.Container.container_id == container_id).first()
 
@@ -865,6 +880,7 @@ async def edit_container(edit_params: basemodels.ContainerBase, admin_usernames:
 async def get_container_log(container_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
 
     validate_containerID(container_id,db)
+    container_access_verification(admin.admin_id, container_id, db)
     
     # all_messages_in_period = db.query(models.BotHistory.message_id).filter(models.BotHistory.time_sent.between(t1,t2)).all()
     messages_in_period = db.query(models.BotHistory).join(models.Message,models.Message.message_id == models.BotHistory.message_id).filter(and_(models.BotHistory.time_sent.between(t1,t2),models.Message.container_id==container_id)).all()
@@ -934,6 +950,7 @@ async def get_container_log(container_id: int, t1: date, t2:date, db:db_dependen
 async def get_container_log_sent_messages(container_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
 
     validate_containerID(container_id,db)
+    container_access_verification(admin.admin_id, container_id, db)
 
     messages_in_period = db.query(models.BotHistory).join(models.Message,models.Message.message_id == models.BotHistory.message_id).filter(and_(models.BotHistory.time_sent.between(t1,t2),models.Message.container_id==container_id)).all()
 
@@ -959,6 +976,7 @@ async def get_container_log_sent_messages(container_id: int, t1: date, t2:date, 
 async def get_container_log_added_messages(container_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
 
     validate_containerID(container_id,db)
+    container_access_verification(admin.admin_id, container_id, db)
 
     messages = db.query(models.Message).filter(and_(models.Message.container_id == container_id,models.Message.create_date.between(t1,t2))).all()
 
@@ -969,6 +987,7 @@ async def get_container_log_added_messages(container_id: int, t1: date, t2:date,
 async def get_container_log_deleted_messages(container_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
 
     validate_containerID(container_id,db)
+    container_access_verification(admin.admin_id, container_id, db)
 
     deleted_messages = db.query(models.Message).filter(and_(models.Message.container_id == container_id, models.Message.is_deleted==1,models.Message.deleted_date.between(t1,t2))).all()
 
@@ -979,6 +998,7 @@ async def get_container_log_deleted_messages(container_id: int, t1: date, t2:dat
 async def get_bot_log(bot_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
 
     validate_botID(bot_id,db)
+    bot_access_verification(admin.admin_id, bot_id, db)
     
     # all_messages_in_period = db.query(models.BotHistory.message_id).filter(models.BotHistory.time_sent.between(t1,t2)).all()
     messages_in_period = db.query(models.BotHistory).filter(and_(models.BotHistory.time_sent.between(t1,t2),models.BotHistory.bot_id==bot_id)).all()
@@ -1028,6 +1048,7 @@ async def get_bot_log(bot_id: int, t1: date, t2:date, db:db_dependency, admin:ad
 async def get_bot_log_sent_messages(bot_id: int, t1: date, t2:date, db:db_dependency, admin:admin_dependency):
 
     validate_botID(bot_id,db)
+    bot_access_verification(admin.admin_id, bot_id, db)
 
     messages_in_period = db.query(models.BotHistory).filter(and_(models.BotHistory.time_sent.between(t1,t2),models.BotHistory.bot_id==bot_id)).all()
 
@@ -1053,6 +1074,7 @@ async def get_bot_log_sent_messages(bot_id: int, t1: date, t2:date, db:db_depend
 async def get_bot_containers(bot_id: int,db: db_dependency, admin: admin_dependency):
 
     validate_botID(bot_id,db)
+    bot_access_verification(admin.admin_id, bot_id, db)
     
     bot_containers = db.query(models.BotContainer.container_id).filter(models.BotContainer.bot_id == bot_id).all()
 
@@ -1074,6 +1096,7 @@ async def send_message(bot_history: basemodels.BotHistoryBase, db:db_dependency,
 
     validate_botID(bot_history.bot_id,db)
     validate_messageID(bot_history.message_id,db)
+    bot_access_verification(admin.admin_id, bot_history.bot_id, db)
 
     bot_containers = await get_bot_containers(bot_history.bot_id,db,admin)
 
@@ -1108,6 +1131,8 @@ async def delete_message(message_id: int,db:db_dependency, admin:admin_dependenc
     validate_messageID(message_id,db)
 
     message:models.Message = db.query(models.Message).filter(models.Message.message_id == message_id).first()
+
+    container_access_verification(admin.admin_id, message.container_id, db)
 
     if message.is_deleted:
         return {"message":"message is already deleted"}
