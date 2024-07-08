@@ -22,6 +22,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+oauth2_scheme_super = OAuth2PasswordBearer(tokenUrl="login/superadmin")
 
 app = FastAPI()
 
@@ -160,7 +161,7 @@ def create_access_token(admin_id:int, expires_delta: timedelta):
     
 
 @app.post('/login',response_model=basemodels.Token)
-async def login_admin(form_data:Annotated[OAuth2PasswordRequestForm,Depends()], db: Session = Depends(get_db)):
+async def admin_login(form_data:Annotated[OAuth2PasswordRequestForm,Depends()], db: Session = Depends(get_db)):
 
     admin = authenticate_admin(form_data.username , form_data.password , db)
 
@@ -171,14 +172,39 @@ async def login_admin(form_data:Annotated[OAuth2PasswordRequestForm,Depends()], 
 
     return {'access_token': token, 'token_type': 'bearer'}
 
+def authenticate_superadmin(username:str, password:str, db: db_dependency):
+    super_admin = db.query(models.SuperAdmin).filter(models.SuperAdmin.username == username).first()
+    if not super_admin:
+        return False
+    if super_admin.password != hashlib.sha256(password.encode('utf-8')).hexdigest():
+        return False
+    return super_admin
+
+@app.post('/login/superadmin')
+async def super_admin_login(form_data:Annotated[OAuth2PasswordRequestForm,Depends()], db:db_dependency):
+    
+    super_admin = authenticate_superadmin(form_data.username , form_data.password , db)
+
+    if not super_admin:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='could not validate super_admin username or password is incorrect')
+    
+    token = create_access_token(super_admin.super_admin_id, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+
+    return {'access_token': token, 'token_type': 'bearer'}
+
 
 async def get_admin(db:db_dependency, admin_id:int):
 
     return db.query(models.Admin).filter(models.Admin.admin_id == admin_id).first()
 
 
+async def get_super_admin(db:db_dependency, super_admin_id:int):
+
+    return db.query(models.SuperAdmin).filter(models.SuperAdmin.super_admin_id == super_admin_id).first()
+
+
 async def get_current_admin(token: Annotated[str, Depends(oauth2_scheme)], db:db_dependency):
-    print(2)
+    # print(2)
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -200,8 +226,32 @@ async def get_current_admin(token: Annotated[str, Depends(oauth2_scheme)], db:db
         raise credentials_exception
     return admin
 
+async def get_current_super_admin(token: Annotated[str, Depends(oauth2_scheme_super)], db:db_dependency):
+    # print(2)
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        
+        id: int = payload.get("id")
+        if id is None:
+            raise credentials_exception
+        token_data = basemodels.TokenData(id=id)
+        
+    except InvalidTokenError:
+        raise credentials_exception
+    
+    super_admin = await get_super_admin(db, token_data.id)
+    if super_admin is None:
+        raise credentials_exception
+    return super_admin
+
 
 admin_dependency = Annotated[models.Admin, Depends(get_current_admin)]
+super_admin_dependency = Annotated[models.Admin, Depends(get_current_super_admin)]
 
 
 @app.get('/adminInfo') #test function
@@ -467,7 +517,6 @@ async def delete_container(container_id: int, db:db_dependency, admin:admin_depe
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="something went wrong")
     
 
-
 @app.delete('/delete-bot/{bot_id}') # delete all connections
 async def delete_bot(bot_id: int, db:db_dependency, admin:admin_dependency):
 
@@ -501,7 +550,6 @@ async def delete_bot(bot_id: int, db:db_dependency, admin:admin_dependency):
         print(e)
         logging.error(f"Error: {e}")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,detail="something went wrong")
-
 
 
 @app.get('/all-containers')
@@ -1058,4 +1106,29 @@ async def delete_message(message_id: int,db:db_dependency, admin:admin_dependenc
 
     return {"message":"message deleted succesfully"}
 
+
+# @app.get('/get-container-obj/{}')
+
+@app.get('/superadmin-access')
+async def get_super_admin_accessibility(db:db_dependency, super_admin:super_admin_dependency):
+
+    admins = db.query(models.Admin).all()
+    bots = db.query(models.Bot).all()
+    containers = db.query(models.Container).all()
+
+    message_containers = []
+    comment_containers = []
+
+    for container in containers:
+        message_containers.append(container) if container.type_id==1 else comment_containers.append(container)
+
+    context = {
+        "admins": admins,
+        "bot": bots,
+        "message_containers": message_containers,
+        "comment_containers": comment_containers,
+        "haghdashdefo": super_admin
+    }
+
+    return context
 
